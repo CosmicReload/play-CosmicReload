@@ -42,8 +42,22 @@ With the [GitHub CLI](https://cli.github.com) you can check that your copy is ex
 gh attestation verify PlayCosmicReloadSetup.exe --repo CosmicReload/play-CosmicReload
 ```
 
-The download on cosmicreload.com is a redirect to the latest release here, and the app's self-updater only
-installs a release whose SHA-256 matches the one published with it.
+The download on cosmicreload.com is a redirect to the latest release here.
+
+## Updates
+
+The app updates itself, and it can only update to a release published in this repository:
+
+- It reads the update manifest straight from this repository's latest GitHub release, not from cosmicreload.com,
+  so the website (or whoever controls its domain or hosting) cannot push an update.
+- It only accepts an installer at exactly
+  `https://github.com/CosmicReload/play-CosmicReload/releases/download/v<version>/PlayCosmicReloadSetup.exe`
+  (see `Updater.Check` in `app/PlayCosmicReload.cs`), and only when the download's SHA-256 matches the manifest.
+- Every release is public, is built by GitHub Actions from the tagged source and carries an attestation (above).
+  An update is therefore always code you can read here first, and the release list is the full history.
+
+What this does not protect against: whoever controls this GitHub repository can publish a release, as with any
+auto-updating app. It would still be public and built from public code.
 
 ## Building
 

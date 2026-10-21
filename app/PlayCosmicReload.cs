@@ -33,7 +33,7 @@ namespace CosmicReload.Play
 {
     static class Config
     {
-        public const string Version = "1.0.1";
+        public const string Version = "1.0.2";
         public const string ServerAddress = "play.cosmicreload.com";
         public const int ServerPort = 25565;
         // servers the agent turns Cosmic features on for (localhost: a server on your own PC)
@@ -41,8 +41,12 @@ namespace CosmicReload.Play
         public const string CosmicClientSite = "https://cosmicclient.com";
         public const string ReloadClientSite = "https://cosmicreload.com/download/";
         public const string SourceSite = "https://github.com/CosmicReload/play-CosmicReload";
-        // {"version": "x.y.z", "url": "<installer>", "sha256": "<hex>"}, written by build.ps1
-        public const string UpdateManifest = "https://cosmicreload.com/download/play-cosmicreload.json";
+        // Updates come only from this repository's public GitHub releases, which GitHub Actions builds from the tagged
+        // source (see README, "Updates"). The manifest is {"version": "x.y.z", "url": "<installer>", "sha256": "<hex>"},
+        // written by build.ps1, and its url must be exactly ReleaseDownload + "v<version>/" + InstallerName.
+        public const string UpdateManifest = "https://github.com/CosmicReload/play-CosmicReload/releases/latest/download/play-cosmicreload.json";
+        public const string ReleaseDownload = "https://github.com/CosmicReload/play-CosmicReload/releases/download/";
+        public const string InstallerName = "PlayCosmicReloadSetup.exe";
     }
 
     static class Program
@@ -216,6 +220,8 @@ namespace CosmicReload.Play
                 release.Version = new Version(version.Groups[1].Value);
                 release.Url = url.Groups[1].Value;
                 release.Sha256 = sha.Groups[1].Value.ToLowerInvariant();
+                // only this repository's release for that exact version, never an address the manifest picks
+                if (release.Url != Config.ReleaseDownload + "v" + version.Groups[1].Value + "/" + Config.InstallerName) return null;
                 return release.Version > new Version(Config.Version) ? release : null;
             }
             catch (Exception)
