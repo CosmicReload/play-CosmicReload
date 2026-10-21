@@ -33,7 +33,7 @@ namespace CosmicReload.Play
 {
     static class Config
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
         public const string ServerAddress = "play.cosmicreload.com";
         public const int ServerPort = 25565;
         // servers the agent turns Cosmic features on for (localhost: a server on your own PC)

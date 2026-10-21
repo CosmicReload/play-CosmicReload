@@ -1,18 +1,26 @@
-# Builds agent\build\cosmic-agent.jar and dist\Play CosmicReload.exe (the agent is packed inside the exe).
-# Needs a JDK (8 or newer) and an ASM 9 jar (ASM_JAR, or one from the Gradle cache). The exe is compiled with the
-# C# compiler that ships with Windows (.NET Framework 4), so nothing else is needed.
+# Builds agent\build\cosmic-agent.jar, build\Play CosmicReload.exe (the agent is packed inside the exe) and
+# dist\PlayCosmicReloadSetup.exe + dist\play-cosmicreload.json (the manifest the app's updater reads).
+# Needs a JDK 8 (COSMIC_JAVA8, the usual Adoptium path, or JAVA_HOME) and NSIS 3. ASM is downloaded from Maven Central and checked
+# against a pinned SHA-256. The exe is compiled with the C# compiler that ships with Windows (.NET Framework 4).
+# Releases are built by GitHub Actions (.github/workflows/release.yml) from a version tag; this script is what it runs.
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 
 # agent
 $jdk = $env:COSMIC_JAVA8
-if (-not $jdk) { $jdk = 'C:\Program Files\Eclipse Adoptium\jdk-8.0.462.8-hotspot' }
+if (-not $jdk -and (Test-Path 'C:\Program Files\Eclipse Adoptium\jdk-8.0.462.8-hotspot')) { $jdk = 'C:\Program Files\Eclipse Adoptium\jdk-8.0.462.8-hotspot' }
+if (-not $jdk) { $jdk = $env:JAVA_HOME }
 $asm = $env:ASM_JAR
 if (-not $asm) {
-    $asm = Get-ChildItem "$env:USERPROFILE\.gradle" -Recurse -Filter 'asm-9.*.jar' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notlike '*sources*' } | Select-Object -First 1 -ExpandProperty FullName
+    $asm = Join-Path $root 'agent\.cache\asm-9.7.jar'
+    $asmSha = 'adf46d5e34940bdf148ecdd26a9ee8eea94496a72034ff7141066b3eea5c4e9d'
+    if (-not (Test-Path $asm) -or (Get-FileHash $asm -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asmSha) {
+        New-Item -ItemType Directory -Force (Split-Path $asm) | Out-Null
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest 'https://repo1.maven.org/maven2/org/ow2/asm/asm/9.7/asm-9.7.jar' -OutFile $asm -UseBasicParsing
+        if ((Get-FileHash $asm -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asmSha) { throw 'ASM download failed its SHA-256 check' }
+    }
 }
-if (-not $asm) { throw 'ASM 9 jar not found (set ASM_JAR).' }
 $agent = Join-Path $root 'agent'
 $classes = Join-Path $agent 'build\classes'
 $jar = Join-Path $agent 'build\cosmic-agent.jar'
@@ -56,20 +64,20 @@ if (-not $makensis) {
 if (-not $makensis) { throw 'NSIS not found (install NSIS 3 or set NSIS_HOME).' }
 $installer = Join-Path $root 'installer'
 if (-not (Test-Path (Join-Path $installer 'welcome.bmp'))) { & (Join-Path $installer 'make-art.ps1') }
-New-Item -ItemType Directory -Force (Join-Path $root 'dist') | Out-Null
+$dist = Join-Path $root 'dist'
+Remove-Item $dist -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $dist | Out-Null
 & $makensis /V2 "/DVERSION=$version" "/DAPP_EXE=$exe" (Join-Path $installer 'installer.nsi')
 if ($LASTEXITCODE -ne 0) { throw 'makensis failed' }
-$setup = Join-Path $root "dist\PlayCosmicReloadSetup-$version.exe"
+$setup = Join-Path $dist 'PlayCosmicReloadSetup.exe'
+Move-Item (Join-Path $dist "PlayCosmicReloadSetup-$version.exe") $setup
 Write-Host "Built $setup"
 
-# publish into the website (when this sits next to it): the installer under a fixed name, plus the manifest the
-# app's updater reads. Redeploy the website to release it.
-$site = Join-Path $root '..\website\download'
-if (Test-Path $site) {
-    Copy-Item $setup (Join-Path $site 'PlayCosmicReloadSetup.exe') -Force
-    $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-    $size = [math]::Round((Get-Item $setup).Length / 1KB)
-    $manifest = '{"version": "' + $version + '", "url": "https://cosmicreload.com/download/PlayCosmicReloadSetup.exe", "sha256": "' + $sha + '", "sizeKB": ' + $size + '}'
-    [IO.File]::WriteAllText((Join-Path $site 'play-cosmicreload.json'), $manifest + "`n")
-    Write-Host "Published $version to website\download (redeploy the site to release it)"
-}
+# update manifest: points at this version's GitHub release asset (cosmicreload.com/download/play-cosmicreload.json
+# redirects to the latest release's copy of this file)
+$sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+$size = [math]::Round((Get-Item $setup).Length / 1KB)
+$url = "https://github.com/CosmicReload/play-CosmicReload/releases/download/v$version/PlayCosmicReloadSetup.exe"
+$manifest = '{"version": "' + $version + '", "url": "' + $url + '", "sha256": "' + $sha + '", "sizeKB": ' + $size + '}'
+[IO.File]::WriteAllText((Join-Path $dist 'play-cosmicreload.json'), $manifest + "`n")
+Write-Host "Version $version, SHA-256 $sha"

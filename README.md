@@ -4,7 +4,7 @@ Play [CosmicReload](https://cosmicreload.com) with the official **Cosmic Client*
 features switched on.
 
 1. Install the [Cosmic Client](https://cosmicclient.com) as usual.
-2. Install **Play CosmicReload** (`PlayCosmicReloadSetup-<version>.exe`), open it and press **Play**.
+2. Install **Play CosmicReload** (`PlayCosmicReloadSetup.exe` from [Releases](https://github.com/CosmicReload/play-CosmicReload/releases/latest)), open it and press **Play**.
 3. The Cosmic Client opens. Join `play.cosmicreload.com`.
 
 ## What it does
@@ -32,11 +32,27 @@ Nothing else is touched:
 The whole thing is two Java files (`agent/src`), one C# file (`app/PlayCosmicReload.cs`) and the installer script
 (`installer/installer.nsi`).
 
+## Verifying a download
+
+Every release is built by GitHub Actions from the source at its tag ([`release.yml`](.github/workflows/release.yml)),
+never on someone's PC, and comes with a signed [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations).
+With the [GitHub CLI](https://cli.github.com) you can check that your copy is exactly what that build produced:
+
+```
+gh attestation verify PlayCosmicReloadSetup.exe --repo CosmicReload/play-CosmicReload
+```
+
+The download on cosmicreload.com is a redirect to the latest release here, and the app's self-updater only
+installs a release whose SHA-256 matches the one published with it.
+
 ## Building
 
-Double-click `Build.bat` (or run `build.ps1`). Needs a JDK 8+, an ASM 9 jar (`ASM_JAR`; otherwise one is taken
-from the Gradle cache) and NSIS 3 (`NSIS_HOME`; otherwise the copy electron-builder caches, or a normal install).
-The app is compiled with the C# compiler built into Windows. Output: `dist\PlayCosmicReloadSetup-<version>.exe`.
+Double-click `Build.bat` (or run `build.ps1`). Needs a JDK 8 (`COSMIC_JAVA8` or `JAVA_HOME`) and NSIS 3
+(`NSIS_HOME`; otherwise a normal install or the copy electron-builder caches). ASM 9.7 is downloaded from Maven
+Central and checked against a pinned SHA-256. The app is compiled with the C# compiler built into Windows.
+Output: `dist\PlayCosmicReloadSetup.exe` and `dist\play-cosmicreload.json` (the update manifest).
+
+To release: set `Version` in `app/PlayCosmicReload.cs`, commit, and push a matching tag (`v1.2.3`).
 
 ## Licence
 
