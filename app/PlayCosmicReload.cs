@@ -40,7 +40,7 @@ namespace CosmicReload.Play
         public const string AgentHosts = "play.cosmicreload.com,localhost";
         public const string CosmicClientSite = "https://cosmicclient.com";
         public const string ReloadClientSite = "https://cosmicreload.com/download/";
-        public const string SourceSite = "https://github.com/cosmicreload/play-cosmicreload";
+        public const string SourceSite = "https://github.com/CosmicReload/play-CosmicReload";
         // {"version": "x.y.z", "url": "<installer>", "sha256": "<hex>"}, written by build.ps1
         public const string UpdateManifest = "https://cosmicreload.com/download/play-cosmicreload.json";
     }
