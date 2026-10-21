@@ -33,7 +33,10 @@ namespace CosmicReload.Play
 {
     static class Config
     {
-        public const string Version = "1.0.2";
+        public const string Version = "1.0.3";
+        // copies older than this install this release without asking (raise it only for a fix players must have,
+        // e.g. after a Cosmic Client update breaks the agent); build.ps1 writes it into the manifest as "minimum"
+        public const string MinimumVersion = "1.0.0";
         public const string ServerAddress = "play.cosmicreload.com";
         public const int ServerPort = 25565;
         // servers the agent turns Cosmic features on for (localhost: a server on your own PC)
@@ -179,9 +182,51 @@ namespace CosmicReload.Play
         }
     }
 
+    /// <summary>The player's choices, in %LOCALAPPDATA%\CosmicReload\settings.txt (key=value lines).</summary>
+    static class Settings
+    {
+        static string Location()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CosmicReload\\settings.txt");
+        }
+
+        /// <summary>Install updates without asking. Off by default: the app asks first.</summary>
+        public static bool AutoUpdate
+        {
+            get
+            {
+                try
+                {
+                    foreach (string line in File.ReadAllLines(Location()))
+                        if (line.Trim() == "autoUpdate=true") return true;
+                }
+                catch (Exception)
+                {
+                    // no settings yet
+                }
+                return false;
+            }
+            set
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(Location()));
+                    File.WriteAllText(Location(), "autoUpdate=" + (value ? "true" : "false") + "\r\n");
+                }
+                catch (Exception)
+                {
+                    // read-only profile: the choice lasts until the app closes
+                }
+            }
+        }
+    }
+
     /// <summary>
-    /// Self-update: reads the manifest on cosmicreload.com, downloads a newer installer, checks its SHA-256 and runs it
-    /// silently (per-user, so no admin prompt). The installer closes this app and starts the new version.
+    /// Self-update: reads the manifest of this repository's latest GitHub release, offers a newer version (or installs
+    /// it straight away when the player turned auto-update on, or this copy is older than the release's "minimum"),
+    /// downloads the installer, checks its SHA-256 and runs it silently (per-user, so no admin prompt). The installer
+    /// closes this app and starts the new version.
     /// </summary>
     static class Updater
     {
@@ -190,6 +235,8 @@ namespace CosmicReload.Play
             public Version Version;
             public string Url;
             public string Sha256;
+            public bool Required;
+            public string Notes;
         }
 
         /// <summary>Only an installed copy updates itself (not one run from a build folder).</summary>
@@ -222,6 +269,9 @@ namespace CosmicReload.Play
                 release.Sha256 = sha.Groups[1].Value.ToLowerInvariant();
                 // only this repository's release for that exact version, never an address the manifest picks
                 if (release.Url != Config.ReleaseDownload + "v" + version.Groups[1].Value + "/" + Config.InstallerName) return null;
+                Match minimum = Regex.Match(json, "\"minimum\"\\s*:\\s*\"([0-9.]+)\"");
+                release.Required = minimum.Success && new Version(Config.Version) < new Version(minimum.Groups[1].Value);
+                release.Notes = Config.SourceSite + "/releases/tag/v" + version.Groups[1].Value;
                 return release.Version > new Version(Config.Version) ? release : null;
             }
             catch (Exception)
@@ -419,7 +469,11 @@ namespace CosmicReload.Play
         DateTime nextPing = DateTime.MinValue;
         DateTime copiedUntil = DateTime.MinValue;
         string error;
+        Updater.Release available; // a newer version the player has not answered yet (shown as a banner)
+        readonly bool installed = Updater.Installed(); // a build-folder copy never updates
+        bool autoUpdate = Settings.AutoUpdate;
         Version updateVersion;
+        bool updateRequired;
         int updateProgress;
         string hover;
         string pressed;
@@ -464,7 +518,7 @@ namespace CosmicReload.Play
             poll.Start();
             Activated += delegate { UpdateState(); };
             UpdateState();
-            if (Updater.Installed()) CheckForUpdate();
+            if (installed) CheckForUpdate();
         }
 
         void CheckForUpdate()
@@ -475,11 +529,24 @@ namespace CosmicReload.Play
                 if (release == null) return;
                 UI(delegate
                 {
-                    if (phase != Phase.Idle) return; // never interrupt a launch
-                    phase = Phase.Updating;
-                    updateVersion = release.Version;
-                    updateProgress = 0;
+                    // ask first, unless the player chose auto-update or this version is too old to keep
+                    if (release.Required || autoUpdate) StartUpdate(release);
+                    else available = release;
                 });
+            });
+        }
+
+        void StartUpdate(Updater.Release release)
+        {
+            if (phase != Phase.Idle) return; // never interrupt a launch
+            available = null;
+            phase = Phase.Updating;
+            updateVersion = release.Version;
+            updateRequired = release.Required;
+            updateProgress = 0;
+            error = null;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
                 string installer = Updater.Download(release, delegate(int percent)
                 {
                     UI(delegate { updateProgress = percent; });
@@ -489,6 +556,7 @@ namespace CosmicReload.Play
                     if (installer == null)
                     {
                         phase = Phase.Idle; // download or check failed: carry on with this version
+                        error = "The update could not be downloaded. You can keep playing on this version.";
                         return;
                     }
                     try
@@ -680,6 +748,10 @@ namespace CosmicReload.Play
                 case "client": if (client == ClientState.Missing) Open(Config.CosmicClientSite); break;
                 case "server": CopyAddress(); break;
                 case "source": Open(Config.SourceSite); break;
+                case "update": if (available != null) StartUpdate(available); break;
+                case "later": available = null; break; // asked again next time the app opens
+                case "notes": if (available != null) Open(available.Notes); break;
+                case "auto": autoUpdate = !autoUpdate; Settings.AutoUpdate = autoUpdate; break;
                 case "reload": Open(Config.ReloadClientSite); break;
             }
         }
@@ -701,7 +773,8 @@ namespace CosmicReload.Play
             DrawHero(g);
             DrawStatusCard(g, 26, 262);
             DrawPlay(g, new RectangleF(26, 386, W - 52, 60));
-            DrawHint(g, new RectangleF(30, 458, W - 60, 48));
+            if (available != null && phase == Phase.Idle) DrawUpdateBanner(g, new RectangleF(26, 458, W - 52, 58));
+            else DrawHint(g, new RectangleF(30, 458, W - 60, 48));
             DrawFooter(g);
 
             using (Pen border = new Pen(Color.FromArgb(46, 46, 66), 1f))
@@ -889,7 +962,9 @@ namespace CosmicReload.Play
             Color color = Muted;
             if (error != null) { text = error; color = Bad; }
             else if (phase == Phase.Updating)
-                text = "Updating Play CosmicReload to version " + updateVersion + ". It reopens by itself in a moment.";
+                text = (updateRequired ? "Installing a required update (version " + updateVersion + ")."
+                                       : "Updating Play CosmicReload to version " + updateVersion + ".")
+                       + " It reopens by itself in a moment.";
             else if (client == ClientState.Missing)
                 text = "Install the Cosmic Client from cosmicclient.com, then come back here.";
             else if (phase == Phase.Launched)
@@ -909,6 +984,57 @@ namespace CosmicReload.Play
             }
         }
 
+        void DrawUpdateBanner(Graphics g, RectangleF r)
+        {
+            using (GraphicsPath path = Round(r, 12))
+            {
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(235, PanelC))) g.FillPath(b, path);
+                using (LinearGradientBrush edge = new LinearGradientBrush(r, Color.FromArgb(150, Cyan), Color.FromArgb(150, Pink), 0f))
+                using (Pen p = new Pen(edge, 1f))
+                    g.DrawPath(p, path);
+            }
+            Glow(g, new PointF(r.X + 24, r.Y + r.Height / 2f), 9, Color.FromArgb(110, Pink));
+            using (SolidBrush b = new SolidBrush(Pink)) g.FillEllipse(b, r.X + 20, r.Y + r.Height / 2f - 4, 8, 8);
+            using (SolidBrush b = new SolidBrush(TextC)) g.DrawString("Update available", fLabel, b, r.X + 40, r.Y + 11, typo);
+
+            string version = "Version " + available.Version + "  ·  ";
+            using (SolidBrush b = new SolidBrush(Muted)) g.DrawString(version, fSub, b, r.X + 40, r.Y + 31, typo);
+            float nx = r.X + 40 + g.MeasureString(version, fSub, PointF.Empty, typo).Width;
+            SizeF ns = g.MeasureString("What's new", fSub, PointF.Empty, typo);
+            targets["notes"] = new RectangleF(nx - 3, r.Y + 28, ns.Width + 6, ns.Height + 6);
+            using (SolidBrush b = new SolidBrush(hover == "notes" ? TextC : Cyan)) g.DrawString("What's new", fSub, b, nx, r.Y + 31, typo);
+            if (hover == "notes")
+                using (SolidBrush b = new SolidBrush(TextC)) g.FillRectangle(b, nx, r.Y + 31 + ns.Height + 1, ns.Width, 1f);
+
+            RectangleF update = new RectangleF(r.Right - 14 - 76, r.Y + (r.Height - 30) / 2f, 76, 30);
+            RectangleF later = new RectangleF(update.X - 8 - 64, update.Y, 64, 30);
+            SmallButton(g, "later", "Later", later, false);
+            SmallButton(g, "update", "Update", update, true);
+        }
+
+        void SmallButton(Graphics g, string id, string text, RectangleF r, bool primary)
+        {
+            targets[id] = r;
+            bool hot = hover == id;
+            using (GraphicsPath path = Round(r, 8))
+            {
+                if (primary)
+                {
+                    using (LinearGradientBrush brush = new LinearGradientBrush(r, Cyan, Pink, LinearGradientMode.ForwardDiagonal))
+                        g.FillPath(brush, path);
+                    if (hot) using (SolidBrush b = new SolidBrush(Color.FromArgb(pressed == id ? 0 : 30, 255, 255, 255))) g.FillPath(b, path);
+                }
+                else
+                {
+                    using (SolidBrush b = new SolidBrush(hot ? Color.FromArgb(34, 34, 50) : Panel2)) g.FillPath(b, path);
+                    using (Pen p = new Pen(Edge)) g.DrawPath(p, path);
+                }
+            }
+            SizeF size = g.MeasureString(text, fState, PointF.Empty, typo);
+            using (SolidBrush b = new SolidBrush(primary ? Bg : (hot ? TextC : Muted)))
+                g.DrawString(text, fState, b, r.X + (r.Width - size.Width) / 2f, r.Y + (r.Height - size.Height) / 2f, typo);
+        }
+
         void DrawFooter(Graphics g)
         {
             float y = H - 44;
@@ -918,7 +1044,8 @@ namespace CosmicReload.Play
             float x = 22;
             using (SolidBrush b = new SolidBrush(Faint)) g.DrawString("v" + Config.Version, fFoot, b, x, y, typo);
             x += g.MeasureString("v" + Config.Version, fFoot, PointF.Empty, typo).Width + 14;
-            x = Link(g, "source", "Open source", x, y);
+            x = Link(g, "source", "Open source", x, y) + 14;
+            if (installed) Link(g, "auto", autoUpdate ? "Auto-update: on" : "Auto-update: off", x, y);
 
             const string reload = "Get the Reload Client  →";
             float rw = g.MeasureString(reload, fFoot, PointF.Empty, typo).Width;

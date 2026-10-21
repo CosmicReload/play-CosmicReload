@@ -27,7 +27,7 @@ jobs:
       - name: Check the tag matches Config.Version
         shell: pwsh
         run: |
-          $version = [regex]::Match((Get-Content app/PlayCosmicReload.cs -Raw), 'Version = "([0-9.]+)"').Groups[1].Value
+          $version = [regex]::Match((Get-Content app/PlayCosmicReload.cs -Raw), '\bVersion = "([0-9.]+)"').Groups[1].Value
           if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match Config.Version $version" }
 
       - name: Install NSIS

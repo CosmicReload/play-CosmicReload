@@ -46,7 +46,13 @@ The download on cosmicreload.com is a redirect to the latest release here.
 
 ## Updates
 
-The app updates itself, and it can only update to a release published in this repository:
+When a new version is out, the app asks first: an "Update available" bar with **Update**, **Later** (asked again
+next time) and a link to the release notes. Turn on **Auto-update** in the footer to install updates without
+being asked (saved in `%LOCALAPPDATA%\CosmicReload\settings.txt`). The one exception is a release that sets a
+`minimum` version (`Config.MinimumVersion`): copies older than that install it straight away. That is reserved for
+fixes players need to keep playing, such as after a Cosmic Client update breaks the agent.
+
+Updates can only come from a release published in this repository:
 
 - It reads the update manifest straight from this repository's latest GitHub release, not from cosmicreload.com,
   so the website (or whoever controls its domain or hosting) cannot push an update.
