@@ -34,9 +34,6 @@ namespace CosmicReload.Play
     static class Config
     {
         public const string Version = "1.0.3";
-        // copies older than this install this release without asking (raise it only for a fix players must have,
-        // e.g. after a Cosmic Client update breaks the agent); build.ps1 writes it into the manifest as "minimum"
-        public const string MinimumVersion = "1.0.0";
         public const string ServerAddress = "play.cosmicreload.com";
         public const int ServerPort = 25565;
         // servers the agent turns Cosmic features on for (localhost: a server on your own PC)
@@ -224,7 +221,7 @@ namespace CosmicReload.Play
 
     /// <summary>
     /// Self-update: reads the manifest of this repository's latest GitHub release, offers a newer version (or installs
-    /// it straight away when the player turned auto-update on, or this copy is older than the release's "minimum"),
+    /// it straight away when the player turned auto-update on),
     /// downloads the installer, checks its SHA-256 and runs it silently (per-user, so no admin prompt). The installer
     /// closes this app and starts the new version.
     /// </summary>
@@ -235,7 +232,6 @@ namespace CosmicReload.Play
             public Version Version;
             public string Url;
             public string Sha256;
-            public bool Required;
             public string Notes;
         }
 
@@ -269,8 +265,6 @@ namespace CosmicReload.Play
                 release.Sha256 = sha.Groups[1].Value.ToLowerInvariant();
                 // only this repository's release for that exact version, never an address the manifest picks
                 if (release.Url != Config.ReleaseDownload + "v" + version.Groups[1].Value + "/" + Config.InstallerName) return null;
-                Match minimum = Regex.Match(json, "\"minimum\"\\s*:\\s*\"([0-9.]+)\"");
-                release.Required = minimum.Success && new Version(Config.Version) < new Version(minimum.Groups[1].Value);
                 release.Notes = Config.SourceSite + "/releases/tag/v" + version.Groups[1].Value;
                 return release.Version > new Version(Config.Version) ? release : null;
             }
@@ -473,7 +467,6 @@ namespace CosmicReload.Play
         readonly bool installed = Updater.Installed(); // a build-folder copy never updates
         bool autoUpdate = Settings.AutoUpdate;
         Version updateVersion;
-        bool updateRequired;
         int updateProgress;
         string hover;
         string pressed;
@@ -529,8 +522,8 @@ namespace CosmicReload.Play
                 if (release == null) return;
                 UI(delegate
                 {
-                    // ask first, unless the player chose auto-update or this version is too old to keep
-                    if (release.Required || autoUpdate) StartUpdate(release);
+                    // ask first, unless the player chose auto-update
+                    if (autoUpdate) StartUpdate(release);
                     else available = release;
                 });
             });
@@ -542,7 +535,6 @@ namespace CosmicReload.Play
             available = null;
             phase = Phase.Updating;
             updateVersion = release.Version;
-            updateRequired = release.Required;
             updateProgress = 0;
             error = null;
             ThreadPool.QueueUserWorkItem(delegate
@@ -962,9 +954,7 @@ namespace CosmicReload.Play
             Color color = Muted;
             if (error != null) { text = error; color = Bad; }
             else if (phase == Phase.Updating)
-                text = (updateRequired ? "Installing a required update (version " + updateVersion + ")."
-                                       : "Updating Play CosmicReload to version " + updateVersion + ".")
-                       + " It reopens by itself in a moment.";
+                text = "Updating Play CosmicReload to version " + updateVersion + ". It reopens by itself in a moment.";
             else if (client == ClientState.Missing)
                 text = "Install the Cosmic Client from cosmicclient.com, then come back here.";
             else if (phase == Phase.Launched)

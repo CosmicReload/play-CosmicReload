@@ -51,7 +51,6 @@ Write-Host "Built $exe"
 
 # installer (version comes from Config.Version in the app)
 $version = [regex]::Match((Get-Content $source -Raw), '\bVersion = "([0-9.]+)"').Groups[1].Value
-$minimum = [regex]::Match((Get-Content $source -Raw), 'MinimumVersion = "([0-9.]+)"').Groups[1].Value
 $makensis = $null
 if ($env:NSIS_HOME) { $makensis = Join-Path $env:NSIS_HOME 'makensis.exe' }
 if (-not $makensis -or -not (Test-Path $makensis)) {
@@ -79,6 +78,6 @@ Write-Host "Built $setup"
 $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = [math]::Round((Get-Item $setup).Length / 1KB)
 $url = "https://github.com/CosmicReload/play-CosmicReload/releases/download/v$version/PlayCosmicReloadSetup.exe"
-$manifest = '{"version": "' + $version + '", "url": "' + $url + '", "minimum": "' + $minimum + '", "sha256": "' + $sha + '", "sizeKB": ' + $size + '}'
+$manifest = '{"version": "' + $version + '", "url": "' + $url + '", "sha256": "' + $sha + '", "sizeKB": ' + $size + '}'
 [IO.File]::WriteAllText((Join-Path $dist 'play-cosmicreload.json'), $manifest + "`n")
 Write-Host "Version $version, SHA-256 $sha"
